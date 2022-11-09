@@ -20,6 +20,7 @@ __all__ = [
     "BetaSobolev",
     "TransitionProbabilities",
     "RawRadBoundBoundTransProbs",
+    "NonMarkovChainTransitionProbabilities",
 ]
 
 C_EINSTEIN = (
@@ -134,10 +135,10 @@ class TauSobolev(ProcessingPlasmaProperty):
         super(TauSobolev, self).__init__(plasma_parent)
         self.sobolev_coefficient = (
             (
-                ((np.pi * const.e.gauss ** 2) / (const.m_e.cgs * const.c.cgs))
+                ((np.pi * const.e.gauss**2) / (const.m_e.cgs * const.c.cgs))
                 * u.cm
                 * u.s
-                / u.cm ** 3
+                / u.cm**3
             )
             .to(1)
             .value
@@ -354,6 +355,10 @@ class TransitionProbabilities(ProcessingPlasmaProperty):
                 "Macro Atom Data was not found. Instead returning All Macro Atom Data"
             )
             return atomic_data.macro_atom_data_all
+
+
+class NonMarkovChainTransitionProbabilities(TransitionProbabilities):
+    outputs = ("non_markov_transition_probabilities",)
 
 
 class RawRadBoundBoundTransProbs(

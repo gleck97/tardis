@@ -1,39 +1,43 @@
-import os
 import pytest
 import numpy as np
-import pandas as pd
+
 import tardis.montecarlo.montecarlo_numba.r_packet as r_packet
-import tardis.montecarlo.montecarlo_numba.calculate_distances as calculate_distances
-import tardis.montecarlo.montecarlo_numba.frame_transformations as frame_transformations
+import tardis.transport.geometry.calculate_distances as calculate_distances
+import tardis.transport.frame_transformations as frame_transformations
 import tardis.montecarlo.montecarlo_numba.opacities as opacities
-from tardis.montecarlo.montecarlo_numba.estimators import (
-    set_estimators,
-    update_line_estimators,
-)
+import tardis.transport.r_packet_transport as r_packet_transport
+from tardis.montecarlo.montecarlo_numba.estimators import update_line_estimators
 import tardis.montecarlo.montecarlo_numba.utils as utils
-import tardis.montecarlo.montecarlo_configuration as mc
+
 import tardis.montecarlo.montecarlo_numba.numba_interface as numba_interface
+from tardis.model.geometry.radial1d import NumbaRadial1DGeometry
 from tardis import constants as const
-from tardis.montecarlo.montecarlo_numba.numba_interface import Estimators
+
 import tardis.montecarlo.montecarlo_numba.numba_config as numba_config
-from tardis.montecarlo.montecarlo_numba import macro_atom
+
 
 C_SPEED_OF_LIGHT = const.c.to("cm/s").value
 SIGMA_THOMSON = const.sigma_T.to("cm^2").value
 
 from numpy.testing import (
-    assert_equal,
     assert_almost_equal,
-    assert_array_equal,
     assert_allclose,
 )
 
 
 @pytest.fixture(scope="function")
-def model():
-    return numba_interface.NumbaModel(
+def geometry():
+    return NumbaRadial1DGeometry(
         r_inner=np.array([6.912e14, 8.64e14], dtype=np.float64),
         r_outer=np.array([8.64e14, 1.0368e15], dtype=np.float64),
+        v_inner=np.array([-1, -1], dtype=np.float64),
+        v_outer=np.array([-1, -1], dtype=np.float64),
+    )
+
+
+@pytest.fixture(scope="function")
+def model():
+    return numba_interface.NumbaModel(
         time_explosion=5.2e7,
     )
 
@@ -49,6 +53,11 @@ def estimators():
         Edotlu_estimator=np.array(
             [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]], dtype=np.float64
         ),
+        photo_ion_estimator=np.empty((0, 0), dtype=np.float64),
+        stim_recomb_estimator=np.empty((0, 0), dtype=np.float64),
+        bf_heating_estimator=np.empty((0, 0), dtype=np.float64),
+        stim_recomb_cooling_estimator=np.empty((0, 0), dtype=np.float64),
+        photo_ion_estimator_statistics=np.empty((0, 0), dtype=np.int64),
     )
 
 
@@ -60,12 +69,12 @@ def estimators():
         ({"mu": -0.3, "r": 7.5e14}, {"d_boundary": 709376919351035.9}),
     ],
 )
-def test_calculate_distance_boundary(packet_params, expected_params, model):
+def test_calculate_distance_boundary(packet_params, expected_params, geometry):
     mu = packet_params["mu"]
     r = packet_params["r"]
 
     d_boundary = calculate_distances.calculate_distance_boundary(
-        r, mu, model.r_inner[0], model.r_outer[0]
+        r, mu, geometry.r_inner[0], geometry.r_outer[0]
     )
 
     # Accuracy to within 0.1cm
@@ -253,8 +262,9 @@ def test_update_line_estimators(
     assert_allclose(estimators.Edotlu_estimator, expected_Edotlu)
 
 
-@pytest.mark.xfail(reason="Need to fix estimator differences across runs")
 # TODO set RNG consistently
+# TODO: update this test to use the correct trace_packet
+@pytest.mark.xfail(reason="Need to fix estimator differences across runs")
 def test_trace_packet(
     packet,
     verysimple_numba_model,
@@ -265,7 +275,7 @@ def test_trace_packet(
 
     set_seed_fixture(1963)
     packet.initialize_line_id(verysimple_numba_plasma, verysimple_numba_model)
-    distance, interaction_type, delta_shell = r_packet.trace_packet(
+    distance, interaction_type, delta_shell = r_packet_transport.trace_packet(
         packet,
         verysimple_numba_model,
         verysimple_numba_plasma,
@@ -317,12 +327,14 @@ def test_move_r_packet(
     packet.r = packet_params["r"]
 
     numba_config.ENABLE_FULL_RELATIVITY = ENABLE_FULL_RELATIVITY
-    r_packet.move_r_packet.recompile()  # This must be done as move_r_packet was jitted with ENABLE_FULL_RELATIVITY
+    r_packet_transport.move_r_packet.recompile()  # This must be done as move_r_packet was jitted with ENABLE_FULL_RELATIVITY
     doppler_factor = frame_transformations.get_doppler_factor(
         packet.r, packet.mu, model.time_explosion
     )
 
-    r_packet.move_r_packet(packet, distance, model.time_explosion, estimators)
+    r_packet_transport.move_r_packet(
+        packet, distance, model.time_explosion, estimators
+    )
 
     assert_almost_equal(packet.mu, expected_params["mu"])
     assert_almost_equal(packet.r, expected_params["r"])
@@ -368,7 +380,7 @@ def test_move_packet_across_shell_boundary_emitted(
     packet, current_shell_id, delta_shell, no_of_shells
 ):
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.status == r_packet.PacketStatus.EMITTED
@@ -382,7 +394,7 @@ def test_move_packet_across_shell_boundary_reabsorbed(
     packet, current_shell_id, delta_shell, no_of_shells
 ):
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.status == r_packet.PacketStatus.REABSORBED
@@ -396,9 +408,7 @@ def test_move_packet_across_shell_boundary_increment(
     packet, current_shell_id, delta_shell, no_of_shells
 ):
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.current_shell_id == current_shell_id + delta_shell
-
-

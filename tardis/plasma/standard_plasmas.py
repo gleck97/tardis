@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from tardis.io.atom_data import AtomData
+from tardis.plasma.properties.rate_matrix_index import NLTEIndexHelper
 from tardis.util.base import species_string_to_tuple
 from tardis.plasma import BasePlasma
 from tardis.plasma.properties.base import TransitionProbabilitiesProperty
@@ -27,6 +28,8 @@ from tardis.plasma.properties.property_collections import (
     continuum_interaction_inputs,
     adiabatic_cooling_properties,
     two_photon_properties,
+    isotope_properties,
+    nlte_solver_properties,
 )
 from tardis.plasma.exceptions import PlasmaConfigError
 
@@ -89,7 +92,7 @@ def assemble_plasma(config, model, atom_data=None):
         else:
             raise ValueError("No atom_data option found in the configuration.")
 
-        logger.info(f"Reading Atomic Data from {atom_data_fname}")
+        logger.info(f"\n\tReading Atomic Data from {atom_data_fname}")
 
         try:
             atom_data = AtomData.from_hdf(atom_data_fname)
@@ -122,6 +125,11 @@ def assemble_plasma(config, model, atom_data=None):
             "in the configuration."
         )
 
+    nlte_ionization_species = [
+        species_string_to_tuple(s)
+        for s in config.plasma.nlte_ionization_species
+    ]
+
     kwargs = dict(
         t_rad=model.t_radiative,
         abundance=model.abundance,
@@ -129,8 +137,9 @@ def assemble_plasma(config, model, atom_data=None):
         atomic_data=atom_data,
         time_explosion=model.time_explosion,
         w=model.dilution_factor,
-        link_t_rad_t_electron=0.9,
+        link_t_rad_t_electron=config.plasma.link_t_rad_t_electron,
         continuum_interaction_species=continuum_interaction_species,
+        nlte_ionization_species=nlte_ionization_species,
     )
 
     plasma_modules = basic_inputs + basic_properties
@@ -166,10 +175,22 @@ def assemble_plasma(config, model, atom_data=None):
         property_kwargs[MarkovChainTransProbsCollector] = {
             "inputs": transition_probabilities_outputs
         }
+        if config.plasma.nlte_ionization_species:
+            nlte_ionization_species = config.plasma.nlte_ionization_species
+            for species in nlte_ionization_species:
+                if not (species in config.plasma.continuum_interaction.species):
+                    raise PlasmaConfigError(
+                        f"NLTE ionization species {species} not in continuum species."
+                    )
+            property_kwargs[NLTEIndexHelper] = {
+                "nlte_ionization_species": nlte_ionization_species
+            }
+            plasma_modules += nlte_solver_properties
 
         kwargs.update(
             gamma_estimator=None,
             bf_heating_coeff_estimator=None,
+            stim_recomb_cooling_coeff_estimator=None,
             alpha_stim_estimator=None,
             volume=model.volume,
             r_inner=model.r_inner,
@@ -214,7 +235,8 @@ def assemble_plasma(config, model, atom_data=None):
         plasma_modules += non_nlte_properties
 
     if config.plasma.line_interaction_type in ("downbranch", "macroatom"):
-        plasma_modules += macro_atom_properties
+        if not config.plasma.continuum_interaction.species:
+            plasma_modules += macro_atom_properties
 
     if "delta_treatment" in config.plasma:
         property_kwargs[RadiationFieldCorrection] = dict(
@@ -245,6 +267,13 @@ def assemble_plasma(config, model, atom_data=None):
             property_kwargs[IonNumberDensity] = dict(
                 electron_densities=electron_densities
             )
+
+    if not model.raw_isotope_abundance.empty:
+        plasma_modules += isotope_properties
+        isotope_abundance = model.raw_isotope_abundance.loc[
+            :, model.v_boundary_inner_index : model.v_boundary_outer_index - 1
+        ]
+        kwargs.update(isotope_abundance=isotope_abundance)
 
     kwargs["helium_treatment"] = config.plasma.helium_treatment
 

@@ -16,6 +16,7 @@ basic_inputs = PlasmaPropertyCollection(
         LinkTRadTElectron,
         HeliumTreatment,
         ContinuumInteractionSpecies,
+        NLTEIonizationSpecies,
     ]
 )
 basic_properties = PlasmaPropertyCollection(
@@ -39,7 +40,7 @@ basic_properties = PlasmaPropertyCollection(
 lte_ionization_properties = PlasmaPropertyCollection([PhiSahaLTE])
 lte_excitation_properties = PlasmaPropertyCollection([LevelBoltzmannFactorLTE])
 macro_atom_properties = PlasmaPropertyCollection(
-    [BetaSobolev, TransitionProbabilities]
+    [BetaSobolev, TransitionProbabilities, MacroAtomData]
 )
 nebular_ionization_properties = PlasmaPropertyCollection(
     [PhiSahaNebular, ZetaData, BetaElectron, RadiationFieldCorrection]
@@ -57,6 +58,7 @@ nlte_properties = PlasmaPropertyCollection(
         BetaSobolev,
     ]
 )
+nlte_solver_properties = PlasmaPropertyCollection([NLTEIndexHelper])
 helium_nlte_properties = PlasmaPropertyCollection(
     [
         HeliumNLTE,
@@ -87,6 +89,7 @@ continuum_interaction_inputs = PlasmaPropertyCollection(
         TInner,
         Volume,
         BfHeatingRateCoeffEstimator,
+        StimRecombCoolingRateCoeffEstimator,
         YgData,
     ]
 )
@@ -111,12 +114,15 @@ continuum_interaction_properties = PlasmaPropertyCollection(
         RawPhotoIonTransProbs,
         RawRadBoundBoundTransProbs,
         MarkovChainTransProbs,
+        NonContinuumTransProbsMask,
         YgInterpolator,
         CollExcRateCoeff,
         CollDeexcRateCoeff,
         RawCollisionTransProbs,
         MarkovChainIndex,
         MarkovChainTransProbsCollector,
+        NonMarkovChainTransitionProbabilities,
+        MonteCarloTransProbs,
         FreeFreeCoolingRate,
         FreeBoundCoolingRate,
         BoundFreeOpacity,
@@ -124,12 +130,28 @@ continuum_interaction_properties = PlasmaPropertyCollection(
         PhotoIonBoltzmannFactor,
         FreeBoundEmissionCDF,
         LevelIdxs2LineIdx,
+        LevelIdxs2TransitionIdx,
         CollIonRateCoeffSeaton,
         CollRecombRateCoeff,
         RawCollIonTransProbs,
+        ContinuumInteractionHandler,
+        BoundFreeOpacityInterpolator,
+        FreeFreeOpacity,
+        ContinuumOpacityCalculator,
+        BetaSobolev,
+        FreeFreeFrequencySampler,
+        FreeBoundFrequencySampler,
     ]
 )
 adiabatic_cooling_properties = PlasmaPropertyCollection([AdiabaticCoolingRate])
 two_photon_properties = PlasmaPropertyCollection(
-    [RawTwoPhotonTransProbs, TwoPhotonData, TwoPhotonEmissionCDF]
+    [
+        RawTwoPhotonTransProbs,
+        TwoPhotonData,
+        TwoPhotonEmissionCDF,
+        TwoPhotonFrequencySampler,
+    ]
+)
+isotope_properties = PlasmaPropertyCollection(
+    [IsotopeAbundance, IsotopeMass, IsotopeNumberDensity]
 )

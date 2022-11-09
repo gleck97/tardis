@@ -50,13 +50,15 @@ import numpy as np
 import pandas as pd
 import tardis.montecarlo.montecarlo_numba.formal_integral as formal_integral
 import tardis.montecarlo.montecarlo_numba.r_packet as r_packet
+import tardis.transport.r_packet_transport as r_packet_transport
 import tardis.montecarlo.montecarlo_numba.utils as utils
 import tardis.montecarlo.montecarlo_configuration as mc
 from tardis import constants as const
 from tardis.montecarlo.montecarlo_numba.numba_interface import Estimators
-from tardis.montecarlo.montecarlo_numba import macro_atom
+from tardis.montecarlo.montecarlo_numba.numba_interface import RPacketTracker
 
-from tardis.montecarlo.montecarlo_numba.frame_transformations import (
+
+from tardis.transport.frame_transformations import (
     get_doppler_factor,
     angle_aberration_LF_to_CMF,
     angle_aberration_CMF_to_LF,
@@ -69,13 +71,12 @@ pytestmark = pytest.mark.skip(reason="Port from C to numba")
 
 
 from numpy.testing import (
-    assert_equal,
     assert_almost_equal,
-    assert_array_equal,
     assert_allclose,
 )
 
 from tardis import __path__ as path
+
 
 @pytest.fixture(scope="module")
 def continuum_compare_data_fname():
@@ -108,6 +109,7 @@ def expected_ff_emissivity(continuum_compare_data):
 
     return ff_emissivity
 
+
 @pytest.fixture(scope="module")
 def ion_edges():
     return [
@@ -127,6 +129,7 @@ def ion_edges():
             "no_of_points": 4,
         },
     ]
+
 
 """
 Important Tests:
@@ -152,7 +155,7 @@ relatively old and stable code.
             0.0,
             0,
             3,
-            {"result": 0}, # This one might need to check for a bounds error
+            {"result": 0},  # This one might need to check for a bounds error
         ),
     ],
 )
@@ -216,7 +219,7 @@ def test_line_search(nu, nu_insert, number_of_lines, expected_params):
             8.0,
             0,
             3,
-            {"result": 0}, # this one too
+            {"result": 0},  # this one too
         ),
         (
             [2.0, 4.0, 6.0, 7.0],
@@ -230,9 +233,7 @@ def test_line_search(nu, nu_insert, number_of_lines, expected_params):
 def test_binary_search(x, x_insert, imin, imax, expected_params):
     obtained_result = 0
 
-    obtained_result = formal_integral.binary_search(
-        x, x_insert, imin, imax
-    )
+    obtained_result = formal_integral.binary_search(x, x_insert, imin, imax)
 
     assert obtained_result == expected_params["result"]
 
@@ -313,9 +314,7 @@ def test_unphysical_inverse_doppler_factor(mu, r, inv_t_exp):
         (0, 1, 1 / 2.6e7, 1.0),
     ],
 )
-def test_get_doppler_factor_full_relativity(
-    mu, r, inv_t_exp, expected
-):
+def test_get_doppler_factor_full_relativity(mu, r, inv_t_exp, expected):
     # Set the params from test cases here
     # TODO: add relativity tests
     mc.full_relativity = True
@@ -338,9 +337,7 @@ def test_get_doppler_factor_full_relativity(
         (0, 1, 1 / 2.6e7, 1.0),
     ],
 )
-def test_get_inverse_doppler_factor_full_relativity(
-    mu, r, inv_t_exp, expected
-):
+def test_get_inverse_doppler_factor_full_relativity(mu, r, inv_t_exp, expected):
     # Set the params from test cases here
     # TODO: add relativity tests
     mc.full_relativity = True
@@ -401,9 +398,7 @@ def test_both_angle_aberrations(mu, r, time_explosion):
     energy = 0.9
     packet = r_packet.RPacket(r, mu, nu, energy)
     packet.r = r
-    obtained_mu = angle_aberration_LF_to_CMF(
-        packet, time_explosion, mu
-    )
+    obtained_mu = angle_aberration_LF_to_CMF(packet, time_explosion, mu)
     inverse_obtained_mu = angle_aberration_CMF_to_LF(
         packet, time_explosion, obtained_mu
     )
@@ -422,9 +417,7 @@ def test_both_angle_aberrations_inverse(mu, r, time_explosion):
     energy = 0.9
     packet = r_packet.RPacket(r, mu, nu, energy)
     packet.r = r
-    obtained_mu = angle_aberration_CMF_to_LF(
-        packet, time_explosion, mu
-    )
+    obtained_mu = angle_aberration_CMF_to_LF(packet, time_explosion, mu)
     inverse_obtained_mu = angle_aberration_LF_to_CMF(
         packet, time_explosion, obtained_mu
     )
@@ -444,7 +437,7 @@ def test_move_packet_across_shell_boundary_emitted(
     energy = 0.9
     packet = r_packet.RPacket(r, mu, nu, energy)
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.status == r_packet.PacketStatus.EMITTED
@@ -463,7 +456,7 @@ def test_move_packet_across_shell_boundary_reabsorbed(
     energy = 0.9
     packet = r_packet.RPacket(r, mu, nu, energy)
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.status == r_packet.PacketStatus.REABSORBED
@@ -482,7 +475,7 @@ def test_move_packet_across_shell_boundary_increment(
     energy = 0.9
     packet = r_packet.RPacket(r, mu, nu, energy)
     packet.current_shell_id = current_shell_id
-    r_packet.move_packet_across_shell_boundary(
+    r_packet_transport.move_packet_across_shell_boundary(
         packet, delta_shell, no_of_shells
     )
     assert packet.current_shell_id == current_shell_id + delta_shell
@@ -493,7 +486,7 @@ def test_move_packet_across_shell_boundary_increment(
     [(0, 1, 0, 0), (0, 1, 1, 0), (0, 1, 0, 1)],
 )
 def test_packet_energy_limit_one(distance_trace, time_explosion, mu, r):
-    initial_energy = 0.9 
+    initial_energy = 0.9
     nu = 0.4
     packet = r_packet.RPacket(r, mu, nu, initial_energy)
     new_energy = r_packet.calc_packet_energy(
@@ -510,9 +503,7 @@ def test_packet_energy_limit_one(distance_trace, time_explosion, mu, r):
         ({"mu": -0.3, "r": 7.5e14}, {"d_boundary": 709376919351035.9}),
     ],
 )
-def test_compute_distance2boundary(
-    packet_params, expected_params
-):
+def test_compute_distance2boundary(packet_params, expected_params):
     mu = packet_params["mu"]
     r = packet_params["r"]
     r_inner = np.array([6.912e14, 8.64e14], dtype=np.float64)
@@ -561,9 +552,7 @@ def test_compute_distance2line(packet_params, expected_params):
 
     time_explosion = 5.2e7
 
-    doppler_factor = get_doppler_factor(
-        packet.r, packet.mu, time_explosion
-    )
+    doppler_factor = get_doppler_factor(packet.r, packet.mu, time_explosion)
     comov_nu = packet.nu * doppler_factor
 
     d_line = 0
@@ -620,9 +609,7 @@ def test_compute_distance2line(packet_params, expected_params):
         ),
     ],
 )
-def test_move_packet(
-    packet_params, expected_params, full_relativity
-):
+def test_move_packet(packet_params, expected_params, full_relativity):
     distance = 1e13
     r, mu, nu, energy = 7.5e14, 0.3, 0.4, 0.9
     time_explosion = 5.2e7
@@ -634,13 +621,11 @@ def test_move_packet(
     # model.full_relativity = full_relativity
     mc.full_relativity = full_relativity
 
-    doppler_factor = get_doppler_factor(
-        packet.r, packet.mu, time_explosion
-    )
+    doppler_factor = get_doppler_factor(packet.r, packet.mu, time_explosion)
     numba_estimator = Estimators(
         packet_params["j"], packet_params["nu_bar"], 0, 0
     )
-    r_packet.move_r_packet(
+    r_packet_transport.move_r_packet(
         packet, distance, time_explosion, numba_estimator
     )
 
@@ -769,9 +754,7 @@ def test_angle_transformation_invariance(mu, r, inv_t_exp):
     mc.full_relativity = True
 
     mu1 = angle_aberration_CMF_to_LF(packet, 1 / inv_t_exp, mu)
-    mu_obtained = angle_aberration_LF_to_CMF(
-        packet, 1 / inv_t_exp, mu1
-    )
+    mu_obtained = angle_aberration_LF_to_CMF(packet, 1 / inv_t_exp, mu1)
 
     mc.full_relativity = False
     assert_almost_equal(mu_obtained, mu)
@@ -808,7 +791,7 @@ def test_compute_distance2line_relativistic(
     distance = r_packet.calculate_distance_line(
         packet, comov_nu, nu_line, t_exp
     )
-    r_packet.move_r_packet(packet, distance, t_exp, numba_estimator)
+    r_packet_transport.move_r_packet(packet, distance, t_exp, numba_estimator)
 
     doppler_factor = get_doppler_factor(r, mu, t_exp)
     comov_nu = packet.nu * doppler_factor
@@ -816,3 +799,48 @@ def test_compute_distance2line_relativistic(
 
     assert_allclose(comov_nu, nu_line, rtol=1e-14)
 
+
+"""
+Tests for Tracking RPacket Properties
+"""
+
+
+@pytest.mark.parametrize("seed", [2274437677])
+@pytest.mark.parametrize(
+    ["index", "r", "nu", "mu", "energy"],
+    [
+        (0, 0, 0, 0, 0),
+        (10, 1.43e15, 6.57e14, 0.92701038, 0.00010347),
+        (20, 2.04e15, 9.59e14, 0.96005622, 0.00010347),
+        (30, 1.12e15, 2.17e14, 0.96787487, 0.00010347),
+        (40, 2.15e15, 9.17e14, 0.96428633, 0.00010347),
+        (100000, 2.23e15, 8.56e14, 0.96946856, 0.00010347),
+    ],
+)
+def test_rpacket_tracking(index, seed, r, nu, mu, energy):
+    # Setup Montecarlo_Configuration.INITIAL_TRACKING_ARRAY_LENGTH
+    mc.INITIAL_TRACKING_ARRAY_LENGTH = 10
+
+    tracked_rpacket_properties = RPacketTracker()
+    test_rpacket = r_packet.RPacket(
+        index=index,
+        seed=seed,
+        r=r,
+        nu=nu,
+        mu=mu,
+        energy=energy,
+    )
+
+    # TearDown Montecarlo_Configuration.INITIAL_TRACKING_ARRAY_LENGTH
+    mc.INITIAL_TRACKING_ARRAY_LENGTH = None
+
+    tracked_rpacket_properties.track(test_rpacket)
+    tracked_rpacket_properties.finalize_array()
+
+    assert test_rpacket.index == tracked_rpacket_properties.index
+    assert test_rpacket.seed == tracked_rpacket_properties.seed
+    assert test_rpacket.r == tracked_rpacket_properties.r
+    assert test_rpacket.nu == tracked_rpacket_properties.nu
+    assert test_rpacket.mu == tracked_rpacket_properties.mu
+    assert test_rpacket.energy == tracked_rpacket_properties.energy
+    assert tracked_rpacket_properties.interact_id == 1

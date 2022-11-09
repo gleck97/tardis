@@ -107,6 +107,18 @@ properties:
     type: string
     default: none
     description: Path to file containing heating rate/light curve data.
+  link_t_rad_t_electron:
+    type: number
+    default: 0.9
+    description: Value used for estimating the electron temperature from radiation temperature.
+  nlte_ionization_species:
+    type: array
+    default: []
+    description: List of species treated with nlte ionization. In the format ["H I", "He II"] etc.
+  nlte_excitation_species:
+    type: array
+    default: []
+    description: List of species treated with nlte excitation. In the format ["H I", "He II"] etc.
 required:
 - ionization
 - excitation

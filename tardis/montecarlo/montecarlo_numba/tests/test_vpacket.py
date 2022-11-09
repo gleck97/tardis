@@ -7,10 +7,9 @@ import tardis.montecarlo.montecarlo_numba.vpacket as vpacket
 import tardis.montecarlo.montecarlo_configuration as mc
 import tardis.montecarlo.montecarlo_numba.numba_interface as numba_interface
 from tardis import constants as const
-from tardis.montecarlo.montecarlo_numba.numba_interface import Estimators
 from tardis.montecarlo.montecarlo_numba import macro_atom
 
-from tardis.montecarlo.montecarlo_numba.frame_transformations import (
+from tardis.transport.frame_transformations import (
     get_doppler_factor,
 )
 
@@ -45,7 +44,10 @@ def v_packet_initialize_line_id(v_packet, numba_plasma, numba_model):
 
 
 def test_trace_vpacket_within_shell(
-    v_packet, verysimple_numba_model, verysimple_numba_plasma
+    v_packet,
+    verysimple_numba_radial_1d_geometry,
+    verysimple_numba_model,
+    verysimple_numba_plasma,
 ):
     # Give the vpacket a reasonable line ID
     v_packet_initialize_line_id(
@@ -57,7 +59,10 @@ def test_trace_vpacket_within_shell(
         distance_boundary,
         delta_shell,
     ) = vpacket.trace_vpacket_within_shell(
-        v_packet, verysimple_numba_model, verysimple_numba_plasma
+        v_packet,
+        verysimple_numba_radial_1d_geometry,
+        verysimple_numba_model,
+        verysimple_numba_plasma,
     )
 
     npt.assert_almost_equal(tau_trace_combined, 8164850.891288479)
@@ -66,7 +71,10 @@ def test_trace_vpacket_within_shell(
 
 
 def test_trace_vpacket(
-    v_packet, verysimple_numba_model, verysimple_numba_plasma
+    v_packet,
+    verysimple_numba_radial_1d_geometry,
+    verysimple_numba_model,
+    verysimple_numba_plasma,
 ):
     # Set seed because of RNG in trace_vpacket
     np.random.seed(1)
@@ -77,7 +85,10 @@ def test_trace_vpacket(
     )
 
     tau_trace_combined = vpacket.trace_vpacket(
-        v_packet, verysimple_numba_model, verysimple_numba_plasma
+        v_packet,
+        verysimple_numba_radial_1d_geometry,
+        verysimple_numba_model,
+        verysimple_numba_plasma,
     )
 
     npt.assert_almost_equal(tau_trace_combined, 8164850.891288479)
@@ -95,6 +106,7 @@ def test_trace_vpacket_volley(
     packet,
     verysimple_packet_collection,
     verysimple_3vpacket_collection,
+    verysimple_numba_radial_1d_geometry,
     verysimple_numba_model,
     verysimple_numba_plasma,
 ):
@@ -106,6 +118,7 @@ def test_trace_vpacket_volley(
     vpacket.trace_vpacket_volley(
         packet,
         verysimple_3vpacket_collection,
+        verysimple_numba_radial_1d_geometry,
         verysimple_numba_model,
         verysimple_numba_plasma,
     )
@@ -125,8 +138,14 @@ def broken_packet():
 
 
 def test_trace_bad_vpacket(
-    broken_packet, verysimple_numba_model, verysimple_numba_plasma
+    broken_packet,
+    verysimple_numba_radial_1d_geometry,
+    verysimple_numba_model,
+    verysimple_numba_plasma,
 ):
     vpacket.trace_vpacket(
-        broken_packet, verysimple_numba_model, verysimple_numba_plasma
+        broken_packet,
+        verysimple_numba_radial_1d_geometry,
+        verysimple_numba_model,
+        verysimple_numba_plasma,
     )

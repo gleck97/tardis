@@ -5,6 +5,7 @@ __all__ = [
     "DilutionFactor",
     "AtomicData",
     "Abundance",
+    "IsotopeAbundance",
     "Density",
     "TimeExplosion",
     "JBlueEstimator",
@@ -14,6 +15,7 @@ __all__ = [
     "TInner",
     "Volume",
     "ContinuumInteractionSpecies",
+    "NLTEIonizationSpecies",
 ]
 
 
@@ -60,6 +62,17 @@ class Abundance(Input):
     """
 
     outputs = ("abundance",)
+
+
+class IsotopeAbundance(Input):
+    """
+    Attributes
+    ----------
+    isotope_abundance : Numpy array, dtype float
+        Fractional abundance of isotopes
+    """
+
+    outputs = ("isotope_abundance",)
 
 
 class Density(ArrayInput):
@@ -136,3 +149,8 @@ class ContinuumInteractionSpecies(Input):
     """
 
     outputs = ("continuum_interaction_species",)
+
+
+class NLTEIonizationSpecies(Input):
+
+    outputs = ("nlte_ionization_species",)

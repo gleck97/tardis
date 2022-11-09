@@ -64,6 +64,24 @@ properties:
     default: false
     description: Enables a more complete treatment of relativitic effects. This includes
       angle aberration as well as use of the fully general Doppler formula.
+  enable_nonhomologous_expansion:
+    type: boolean
+    default: false
+    description: Enables nonhomologous expansion. Treats shells as piece-wise homologous areas for velocity-radius dependence.
+  tracking:
+    type: object
+    default: {}
+    properties:
+      track_rpacket:
+        type: boolean
+        default: false
+        description: Allows for Tracking the properties of the RPackets in Single Packet Loop
+      initial_array_length:
+        type: number
+        default: 10
+        multiple: 1
+        description: Configures the initial array length for the RPacketCollection Properties arrays
+      description: Sets up tracking for Montecarlo 
   debug_packets:
     type: boolean
     default: false
@@ -72,11 +90,6 @@ properties:
     type: number
     default: 1
     description: Provides option to not log every line.
-  single_packet_seed:
-    type:
-      - number
-    default: -1
-    description: If debug_packets is true, this is the seed for the only packet.
 
 required:
 - no_of_packets

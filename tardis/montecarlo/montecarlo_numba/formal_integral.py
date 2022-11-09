@@ -18,6 +18,9 @@ from tardis.montecarlo.montecarlo_numba.numba_interface import (
     NumbaModel,
     NumbaPlasma,
 )
+from tardis.montecarlo.montecarlo_numba.formal_integral_cuda import (
+    CudaFormalIntegrator,
+)
 
 from tardis.montecarlo.spectrum import TARDISSpectrum
 
@@ -33,6 +36,7 @@ class IntegrationError(Exception):
 
 @njit(**njit_dict)
 def numba_formal_integral(
+    geometry,
     model,
     plasma,
     iT,
@@ -47,15 +51,24 @@ def numba_formal_integral(
 ):
     """
     model, plasma, and estimator are the numba variants
+
+    Returns
+    -------
+    L : float64 array
+        integrated luminosities
+    I_nu_p : float64 2D array
+        intensities at each p-ray multiplied by p
+        frequency x p-ray grid
     """
+
     # todo: add all the original todos
     # Initialize the output which is shared among threads
     L = np.zeros(inu_size, dtype=np.float64)
     # global read-only values
     size_line, size_shell = tau_sobolev.shape
     size_tau = size_line * size_shell
-    R_ph = model.r_inner[0]  # make sure these are cgs
-    R_max = model.r_outer[size_shell - 1]
+    R_ph = geometry.r_inner[0]  # make sure these are cgs
+    R_max = geometry.r_outer[size_shell - 1]
     pp = np.zeros(N, dtype=np.float64)  # check
     exp_tau = np.zeros(size_tau, dtype=np.float64)
     exp_tau = np.exp(-tau_sobolev.T.ravel())  # maybe make this 2D?
@@ -63,8 +76,9 @@ def numba_formal_integral(
     line_list_nu = plasma.line_list_nu
     # done with instantiation
     # now loop over wavelength in spectrum
+    I_nu_p = np.zeros((inu_size, N), dtype=np.float64)
     for nu_idx in prange(inu_size):
-        I_nu = np.zeros(N, dtype=np.float64)
+        I_nu = I_nu_p[nu_idx]
         z = np.zeros(2 * size_shell, dtype=np.float64)
         shell_id = np.zeros(2 * size_shell, dtype=np.int64)
         offset = 0
@@ -95,7 +109,9 @@ def numba_formal_integral(
             p = pp[p_idx]
 
             # initialize z intersections for p values
-            size_z = populate_z(model, p, z, shell_id)  # check returns
+            size_z = populate_z(
+                geometry, model, p, z, shell_id
+            )  # check returns
             # initialize I_nu
             if p <= R_ph:
                 I_nu[p_idx] = intensity_black_body(nu * z[0], iT)
@@ -190,25 +206,25 @@ def numba_formal_integral(
             I_nu[p_idx] *= p
         L[nu_idx] = 8 * M_PI * M_PI * trapezoid_integration(I_nu, R_max / N)
 
-    return L
+    return L, I_nu_p
 
 
-integrator_spec = [
-    ("model", NumbaModel.class_type.instance_type),
-    ("plasma", NumbaPlasma.class_type.instance_type),
-    ("points", int64),
-]
+# integrator_spec = [
+#    ("model", NumbaModel.class_type.instance_type),
+#    ("plasma", NumbaPlasma.class_type.instance_type),
+#    ("points", int64),
+# ]
 
 
-@jitclass(integrator_spec)
+# @jitclass(integrator_spec)
 class NumbaFormalIntegrator(object):
     """
     Helper class for performing the formal integral
     with numba.
     """
 
-    def __init__(self, model, plasma, points=1000):
-
+    def __init__(self, geometry, model, plasma, points=1000):
+        self.geometry = geometry
         self.model = model
         self.plasma = plasma
         self.points = points
@@ -225,8 +241,11 @@ class NumbaFormalIntegrator(object):
         electron_density,
         N,
     ):
-        """simple wrapper for the numba implementation of the formal integral"""
+        """
+        Simple wrapper for the numba implementation of the formal integral
+        """
         return numba_formal_integral(
+            self.geometry,
             self.model,
             self.plasma,
             iT,
@@ -243,7 +262,21 @@ class NumbaFormalIntegrator(object):
 
 class FormalIntegrator(object):
     """
-    Class containing the formal integrator
+    Class containing the formal integrator.
+
+    If there is a NVIDIA CUDA GPU available,
+    the formal integral will automatically run
+    on it. If multiple GPUs are available, it will
+    choose the first one that it sees. You can
+    read more about selecting different GPUs on
+    Numba's CUDA documentation.
+
+    Parameters
+    ----------
+    model : tardis.model.Radial1DModel
+    plasma : tardis.plasma.BasePlasma
+    runner : tardis.montecarlo.MontecarloRunner
+    points : int64
     """
 
     def __init__(self, model, plasma, runner, points=1000):
@@ -257,22 +290,39 @@ class FormalIntegrator(object):
             )
             self.atomic_data = plasma.atomic_data
             self.original_plasma = plasma
+            self.levels_index = plasma.levels
 
     def generate_numba_objects(self):
         """instantiate the numba interface objects
         needed for computing the formal integral"""
-        self.numba_model = NumbaModel(
+        from tardis.model.geometry.radial1d import NumbaRadial1DGeometry
+
+        self.numba_radial_1d_geometry = NumbaRadial1DGeometry(
             self.runner.r_inner_i,
             self.runner.r_outer_i,
-            self.model.time_explosion.to("s").value,
+            self.runner.r_inner_i / self.model.time_explosion.to("s").value,
+            self.runner.r_outer_i / self.model.time_explosion.to("s").value,
+        )
+        self.numba_model = NumbaModel(
+            self.model.time_explosion.cgs.value,
         )
         self.numba_plasma = numba_plasma_initialize(
             self.original_plasma, self.runner.line_interaction_type
         )
-
-        self.numba_integrator = NumbaFormalIntegrator(
-            self.numba_model, self.numba_plasma, self.points
-        )
+        if self.runner.use_gpu:
+            self.integrator = CudaFormalIntegrator(
+                self.numba_radial_1d_geometry,
+                self.numba_model,
+                self.numba_plasma,
+                self.points,
+            )
+        else:
+            self.integrator = NumbaFormalIntegrator(
+                self.numba_radial_1d_geometry,
+                self.numba_model,
+                self.numba_plasma,
+                self.points,
+            )
 
     def check(self, raises=True):
         """
@@ -361,10 +411,12 @@ class FormalIntegrator(object):
         model = self.model
         runner = self.runner
 
+        # macro_ref = self.atomic_data.macro_atom_references
         macro_ref = self.atomic_data.macro_atom_references
-        macro_data = self.atomic_data.macro_atom_data
+        # macro_data = self.atomic_data.macro_atom_data
+        macro_data = self.original_plasma.macro_atom_data
 
-        no_lvls = len(self.atomic_data.levels)
+        no_lvls = len(self.levels_index)
         no_shells = len(model.w)
 
         if runner.line_interaction_type == "macroatom":
@@ -531,7 +583,7 @@ class FormalIntegrator(object):
         Jblue_lu = res[2].flatten(order="F")
 
         self.generate_numba_objects()
-        L = self.numba_integrator.formal_integral(
+        L, I_nu_p = self.integrator.formal_integral(
             self.model.t_inner,
             nu,
             nu.shape[0],
@@ -542,11 +594,29 @@ class FormalIntegrator(object):
             self.runner.electron_densities_integ,
             N,
         )
+        R_max = self.runner.r_outer_i[-1]
+        ps = calculate_p_values(R_max, N)[None, :]
+        I_nu_p[:, 1:] /= ps[:, 1:]
+        self.runner.I_nu_p = I_nu_p
+        self.runner.p_rays = ps
+
+        I_nu = self.runner.I_nu_p * ps
+        L_test = np.array(
+            [
+                8 * M_PI * M_PI * trapezoid_integration((I_nu)[i, :], R_max / N)
+                for i in range(nu.shape[0])
+            ]
+        )
+        error = np.max(np.abs((L_test - L) / L))
+        assert (
+            error < 1e-7
+        ), f"Incorrect I_nu_p values, max relative difference:{error}"
+
         return np.array(L, np.float64)
 
 
 @njit(**njit_dict_no_parallel)
-def populate_z(model, p, oz, oshell_id):
+def populate_z(geometry, model, p, oz, oshell_id):
     """Calculate p line intersections
 
     This function calculates the intersection points of the p-line with
@@ -559,14 +629,13 @@ def populate_z(model, p, oz, oshell_id):
         :oshell_id: (int64) will be set with the corresponding shell_ids
     """
     # abbreviations
-    r = model.r_outer
-    N = len(model.r_inner)  # check
-    # print(N)
+    r = geometry.r_outer
+    N = len(geometry.r_inner)  # check
     inv_t = 1 / model.time_explosion
     z = 0
     offset = N
 
-    if p <= model.r_inner[0]:
+    if p <= geometry.r_inner[0]:
         # intersect the photosphere
         for i in range(N):
             oz[i] = 1 - calculate_z(r[i], p, inv_t)
@@ -612,7 +681,7 @@ def calculate_z(r, p, inv_t):
         return 0
 
 
-class BoundsError(ValueError):
+class BoundsError(IndexError):
     pass
 
 
